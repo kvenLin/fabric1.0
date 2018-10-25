@@ -30,6 +30,10 @@ import (
 	putils "github.com/hyperledger/fabric/protos/utils"
 )
 
+//1.标识某key被某一交易改变 组合键
+//2.如何查询key的变动历史
+
+
 var logger = flogging.MustGetLogger("historyleveldb")
 
 var savePointKey = []byte{0x00}
@@ -147,6 +151,7 @@ func (historyDB *historyDB) Commit(block *common.Block) error {
 			for _, nsRWSet := range txRWSet.NsRwSets {
 				ns := nsRWSet.NameSpace
 
+				//循环处理写集
 				for _, kvWrite := range nsRWSet.KvRwSet.Writes {
 					writeKey := kvWrite.Key
 

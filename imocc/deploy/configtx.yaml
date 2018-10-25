@@ -1,0 +1,60 @@
+---
+Profiles: #联盟的配置,所谓联盟就是只有在这个联盟以内的组织才能对区块链做一些操作
+  #配置第一个联盟
+  OneOrgOrdererGenesis: #一般联盟配置包含两个部分:系统链;全局的的组织信息
+    Orderer:
+      <<: *OrdererDefaults
+      Organizations:
+        - *OrdererOrg
+    Consortiums:
+      SampleConsortium:
+        Organizations:
+          - *Org0
+          - *Org1
+  TwoOrgChannel: # 业务相关的联盟,指定的组织可能是所有组织的子集,指定的组织才能对联盟的链进行操作
+    Consortium: SampleConsortium
+    Application:
+      <<: *ApplicationDefaults
+      Organizations:
+        - *Org0
+        - *Org1
+#########################组织的相关配置############################
+Organizations:
+  - &OrdererOrg
+      Name: OrdererOrg
+      ID: OrdererMSP
+      MSPDir: crypto-config/ordererOrganizations/imocc.com/msp #证书的所在位置,相对路径
+  - &Org0
+      Name: Org0MSP
+      ID: Org0MSP
+      MSPDir: crypto-config/peerOrganizations/org0.imocc.com/msp
+      AnchorPeers: #主节点的配置
+        - Host: peer0.org0.imocc.com
+          Port: 7051
+  - &Org1
+      Name: Org1MSP
+      ID: Org1MSP
+      MSPDir: crypto-config/peerOrganizations/org1.imocc.com/msp
+      AnchorPeers:
+        - Host: peer0.org1.imocc.com
+          Port: 7051
+
+######################Orderer组织的相关配置#########################
+Orderer: &OrdererDefaults
+  # Available types are "solo" and "kafka"
+  Orderertype: solo #共识机制
+  Addresses:
+    - orderer.imocc.com:7050
+  BatchTimeout: 2s #出块的时间间隔
+  BatchSize:
+    MaxMessageCount: 10
+    AbsoluteMaxBytes: 99 MB
+    PreferredMaxBytes: 512 KB
+
+  Kafka:
+    Brokers:
+      - 127.0.0.1:9092
+  Organizations:
+#########################应用配置###############################
+Application: &ApplicationDefaults
+  Organizations:

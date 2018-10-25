@@ -83,20 +83,24 @@ func (ch *chain) Errored() <-chan struct{} {
 }
 
 func (ch *chain) main() {
+	//定义一个定时器
 	var timer <-chan time.Time
 
 	for {
 		select {
 		case msg := <-ch.sendChan:
+			//区块切割
 			batches, committers, ok, _ := ch.support.BlockCutter().Ordered(msg)
 			if ok && len(batches) == 0 && timer == nil {
 				timer = time.After(ch.support.SharedConfig().BatchTimeout())
 				continue
 			}
+			//创建区块 & 持久化区块
 			for i, batch := range batches {
 				block := ch.support.CreateNextBlock(batch)
 				ch.support.WriteBlock(block, committers[i], nil)
 			}
+			//重新计时
 			if len(batches) > 0 {
 				timer = nil
 			}
@@ -104,6 +108,7 @@ func (ch *chain) main() {
 			//clear the timer
 			timer = nil
 
+			//区块超时了,马上切割区块
 			batch, committers := ch.support.BlockCutter().Cut()
 			if len(batch) == 0 {
 				logger.Warningf("Batch timer expired with no pending requests, this might indicate a bug")

@@ -1,0 +1,29 @@
+---
+#"OrdererOrgs" - 定义管理排序节点的组织
+OrdererOrgs:
+  - Name: Orderer #组织的名字
+    Domain: imocc.com #域名,只是为了开发测试的方变,所以可以直接设置为任意域名或localhost
+    Specs: #定义组织的节点信息
+      - Hostname: orderer #单个orderer(solo),节点域名orderer.imocc.com
+      # - Hostname: orderer1 - 如果是基于kafka模式的可以无限加节点
+#"PeerOrgs" - 定义管理peer节点的组织
+PeerOrgs:
+  - Name: Org0
+    Domain: org0.imocc.com
+      #没有采用Specs的配置方式,而是采用的Template为了简化,主要是peer节点并不止是一个,可能是多个:如果还是使用Specs就会写很多
+    Template: #使用模板定义peer节点
+      Count: 2 # peer0.org0.imocc.com & peer1.org0.imocc.com
+      # Start: 5 - 指定index计数从0开始还是从定义的Start开始
+    Users: #定义这个组织有多少个用户,这个用户指的是除了Admin之外的其他用户
+      Count: 2 # Admin & User1 & User2,Admin是内置自动生成的
+
+  - Name: Org1
+    Domain: org1.imocc.com
+    Specs:
+      - Hostname: peer0
+      - Hostname: peer1
+    Template: #又创建一个节点peer3
+      Count: 1
+      Start: 2
+    Users:
+      Count: 3 #Admin & User1 & User2 & User3

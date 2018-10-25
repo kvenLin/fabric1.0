@@ -73,6 +73,7 @@ func (ds *deliverServer) Handle(srv ab.AtomicBroadcast_DeliverServer) error {
 	logger.Debugf("Starting new deliver loop")
 	for {
 		logger.Debugf("Attempting to read seek info message")
+		//接收到请求
 		envelope, err := srv.Recv()
 		if err == io.EOF {
 			logger.Debugf("Received EOF, hangup")
@@ -84,6 +85,7 @@ func (ds *deliverServer) Handle(srv ab.AtomicBroadcast_DeliverServer) error {
 			return err
 		}
 
+		//简单校验
 		payload, err := utils.UnmarshalPayload(envelope.Payload)
 		if err != nil {
 			logger.Warningf("Received an envelope with no payload: %s", err)
@@ -101,6 +103,7 @@ func (ds *deliverServer) Handle(srv ab.AtomicBroadcast_DeliverServer) error {
 			return sendStatusReply(srv, cb.Status_BAD_REQUEST)
 		}
 
+		//获取该请求对应的chainsupport对象
 		chain, ok := ds.sm.GetChain(chdr.ChannelId)
 		if !ok {
 			// Note, we log this at DEBUG because SDKs will poll waiting for channels to be created
@@ -109,6 +112,7 @@ func (ds *deliverServer) Handle(srv ab.AtomicBroadcast_DeliverServer) error {
 			return sendStatusReply(srv, cb.Status_NOT_FOUND)
 		}
 
+		//监听是否错误发生
 		erroredChan := chain.Errored()
 		select {
 		case <-erroredChan:
@@ -120,6 +124,7 @@ func (ds *deliverServer) Handle(srv ab.AtomicBroadcast_DeliverServer) error {
 
 		lastConfigSequence := chain.Sequence()
 
+		//链配置信息检验
 		sf := sigfilter.New(policies.ChannelReaders, chain.PolicyManager())
 		result, _ := sf.Apply(envelope)
 		if result != filter.Forward {
@@ -127,12 +132,14 @@ func (ds *deliverServer) Handle(srv ab.AtomicBroadcast_DeliverServer) error {
 			return sendStatusReply(srv, cb.Status_FORBIDDEN)
 		}
 
+		//解析请求消息内容
 		seekInfo := &ab.SeekInfo{}
 		if err = proto.Unmarshal(payload.Data, seekInfo); err != nil {
 			logger.Warningf("[channel: %s] Received a signed deliver request with malformed seekInfo payload: %s", chdr.ChannelId, err)
 			return sendStatusReply(srv, cb.Status_BAD_REQUEST)
 		}
 
+		//校验seek是否正确
 		if seekInfo.Start == nil || seekInfo.Stop == nil {
 			logger.Warningf("[channel: %s] Received seekInfo message with missing start or stop %v, %v", chdr.ChannelId, seekInfo.Start, seekInfo.Stop)
 			return sendStatusReply(srv, cb.Status_BAD_REQUEST)
@@ -171,6 +178,7 @@ func (ds *deliverServer) Handle(srv ab.AtomicBroadcast_DeliverServer) error {
 				}
 			}
 
+			//校验配置信息更改
 			currentConfigSequence := chain.Sequence()
 			if currentConfigSequence > lastConfigSequence {
 				lastConfigSequence = currentConfigSequence
@@ -182,6 +190,7 @@ func (ds *deliverServer) Handle(srv ab.AtomicBroadcast_DeliverServer) error {
 				}
 			}
 
+			//循环读取区块
 			block, status := cursor.Next()
 			if status != cb.Status_SUCCESS {
 				logger.Errorf("[channel: %s] Error reading from channel, cause was: %v", chdr.ChannelId, status)
@@ -190,6 +199,7 @@ func (ds *deliverServer) Handle(srv ab.AtomicBroadcast_DeliverServer) error {
 
 			logger.Debugf("[channel: %s] Delivering block for (%p)", chdr.ChannelId, seekInfo)
 
+			//返回区块给客户端(其他组织的主节点)
 			if err := sendBlockReply(srv, block); err != nil {
 				logger.Warningf("[channel: %s] Error sending to stream: %s", chdr.ChannelId, err)
 				return err
@@ -200,6 +210,7 @@ func (ds *deliverServer) Handle(srv ab.AtomicBroadcast_DeliverServer) error {
 			}
 		}
 
+		//成功读取区块列表
 		if err := sendStatusReply(srv, cb.Status_SUCCESS); err != nil {
 			logger.Warningf("[channel: %s] Error sending to stream: %s", chdr.ChannelId, err)
 			return err

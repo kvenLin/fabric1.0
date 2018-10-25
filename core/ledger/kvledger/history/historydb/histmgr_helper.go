@@ -28,6 +28,11 @@ var compositeKeySep = []byte{0x00}
 // using an order preserving encoding so that history query results are ordered by height
 func ConstructCompositeHistoryKey(ns string, key string, blocknum uint64, trannum uint64) []byte {
 
+	// ns: namespace
+	// key : 智能合约键
+	// blcoknum: 区块高度
+	// trannum : 交易编号
+	// 组合键: ns/key/blocknum/trannum
 	var compositeKey []byte
 	compositeKey = append(compositeKey, []byte(ns)...)
 	compositeKey = append(compositeKey, compositeKeySep...)
@@ -42,6 +47,10 @@ func ConstructCompositeHistoryKey(ns string, key string, blocknum uint64, trannu
 //ConstructPartialCompositeHistoryKey builds a partial History Key namespace~key~
 // for use in history key range queries
 func ConstructPartialCompositeHistoryKey(ns string, key string, endkey bool) []byte {
+	// ns/key/blocknum1/trannum1
+	//ns/key/blocknum2/trannum2
+
+	//ns/key ---> [blocknum1,trannum1] [blocknum2,trannum2]
 	var compositeKey []byte
 	compositeKey = append(compositeKey, []byte(ns)...)
 	compositeKey = append(compositeKey, compositeKeySep...)

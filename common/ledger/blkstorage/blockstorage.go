@@ -61,6 +61,7 @@ type BlockStoreProvider interface {
 // BlockStore - an interface for persisting and retrieving blocks
 // An implementation of this interface is expected to take an argument
 // of type `IndexConfig` which configures the block store on what items should be indexed
+//区块索引的概括
 type BlockStore interface {
 	AddBlock(block *common.Block) error
 	GetBlockchainInfo() (*common.BlockchainInfo, error)

@@ -219,6 +219,7 @@ var defaults = TopLevel{
 
 // Load parses the orderer.yaml file and environment, producing a struct suitable for config use
 func Load() *TopLevel {
+	//使用go语言的一个文件库viper来加载配置信息
 	config := viper.New()
 	cf.InitViper(config, configName)
 

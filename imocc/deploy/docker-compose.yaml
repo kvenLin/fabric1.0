@@ -1,0 +1,161 @@
+#
+# Copyright IBM Corp All Rights Reserved
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+version: '2'
+
+services:
+
+# 关注点
+# 1. 如何注入系统配置到容器中 环境变量注入
+# 2. 端口的映射关系
+# 3. 文件的映射
+
+  orderer.imocc.com:
+    container_name: orderer.imocc.com
+    image: hyperledger/fabric-orderer:x86_64-1.0.0
+    environment:
+      - ORDERER_GENERAL_LOGLEVEL=debug # 日志级别 general.loglevel: debug
+      - ORDERER_GENERAL_LISTENADDRESS=0.0.0.0 # 服务暴露地址
+      - ORDERER_GENERAL_GENESISMETHOD=file # 注入创世区块
+      - ORDERER_GENERAL_GENESISFILE=/etc/hyperledger/config/genesis.block # 注入创世区块,使用的是容器中的路径而不是本地的路径
+      - ORDERER_GENERAL_LOCALMSPID=OrdererMSP # 证书相关
+      - ORDERER_GENERAL_LOCALMSPDIR=/etc/hyperledger/orderer/msp # 证书相关
+    working_dir: /opt/gopath/src/github.com/hyperledger/fabric/orderer
+    command: orderer
+    ports:
+      - 7050:7050 # 17050:7050,如果本机的端口7050已经被占用,将本机的配置为17050
+    volumes:
+        #- ./config/:/etc/hyperledger/config,将本机路径下的./config/文件夹映射到容器中的/etc/hyperledger/config/文件夹
+        - ./config/genesis.block:/etc/hyperledger/config/genesis.block #使用这种方式就没有引入过多的文件,看上去更加清晰,只映射了genesis.block文件
+        - ./crypto-config/ordererOrganizations/imocc.com/orderers/orderer.imocc.com/:/etc/hyperledger/orderer
+
+  peer.base: # 因为peer的公共参数较多,提取出来作为peer的公共服务
+    image: hyperledger/fabric-peer:x86_64-1.0.0
+    environment: # 对于peer的前缀为CORE,而不是上述的ORDERER
+      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock # docker的服务端注入
+      - CORE_LOGGING_PEER=debug
+#      - CORE_CHAINCODE_MODE=dev #这里有两个值一个是dev,一个是net;net就是正常使用的模式,默认是使用net
+      - CORE_CHAINCODE_LOGGING_LEVEL=DEBUG
+      - CORE_PEER_MSPCONFIGPATH=/etc/hyperledger/peer/msp # msp证书（节点证书）
+#      - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+      - CORE_LEDGER_STATE_STATEDATABASE=goleveldb # 状态数据库的存储引擎（or CouchDB）
+      # # the following setting starts chaincode containers on the same
+      # # bridge network as the peers
+      # # https://docs.docker.com/compose/networking/
+      - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=deploy_default # chaincode与peer节点使用同一个网络,如果不设置该参数,链码可能会连不上peer节点
+    working_dir: /opt/gopath/src/github.com/hyperledger/fabric
+#    command: peer node start
+    command: peer node start --peer-chaincodedev=true
+##################对5个peer节点做不同的配置#################
+  #org0下的节点
+  peer0.org0.imocc.com:
+    extends:
+      service: peer.base
+    container_name: peer0.org0.imocc.com
+    environment:
+      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_PEER_ID=peer0.org0.imocc.com #peer的id
+      - CORE_PEER_LOCALMSPID=Org0MSP
+      - CORE_PEER_ADDRESS=peer0.org1.imocc.com:7051 #peer的address,和id的性质一样,每一个peer节点的id和address都不一样
+    ports:
+    #每一个peer节点都会对外暴露的两个服务
+      - 7051:7051 # grpc服务端口
+      - 7053:7053 # eventhup端口,主要做事件监听
+    volumes:
+      - /var/run/:/host/var/run/
+      - ./crypto-config/peerOrganizations/org0.imocc.com/peers/peer0.org0.imocc.com:/etc/hyperledger/peer
+    depends_on:
+      - orderer.imocc.com
+
+  peer1.org0.imocc.com:
+    extends:
+      service: peer.base
+    container_name: peer1.org0.imocc.com
+    environment:
+      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_PEER_ID=peer1.org0.imocc.com
+      - CORE_PEER_LOCALMSPID=Org0MSP
+      - CORE_PEER_ADDRESS=peer1.org0.imocc.com:7051
+    ports:
+      - 17051:7051
+      - 17053:7053
+    volumes:
+      - /var/run/:/host/var/run/
+      - ./crypto-config/peerOrganizations/org0.imocc.com/peers/peer1.org0.imocc.com:/etc/hyperledger/peer
+    depends_on:
+      - orderer.imocc.com
+
+  #org1下的节点
+  peer0.org1.imocc.com:
+    extends:
+      service: peer.base
+    container_name: peer0.org1.imocc.com
+    environment:
+      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_PEER_ID=peer0.org1.imocc.com
+      - CORE_PEER_LOCALMSPID=Org1MSP
+      - CORE_PEER_ADDRESS=peer0.org1.imocc.com:7051
+    ports:
+      - 27051:7051
+      - 27053:7053
+    volumes:
+      - /var/run/:/host/var/run/
+      - ./crypto-config/peerOrganizations/org1.imocc.com/peers/peer0.org1.imocc.com:/etc/hyperledger/peer
+    depends_on:
+      - orderer.imocc.com
+
+  peer1.org1.imocc.com:
+    extends:
+      service: peer.base
+    container_name: peer1.org1.imocc.com
+    environment:
+      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_PEER_ID=peer1.org1.imocc.com
+      - CORE_PEER_LOCALMSPID=Org1MSP
+      - CORE_PEER_ADDRESS=peer1.org1.imocc.com:7051
+    ports:
+      - 37051:7051
+      - 37053:7053
+    volumes:
+      - /var/run/:/host/var/run/
+      - ./crypto-config/peerOrganizations/org1.imocc.com/peers/peer1.org1.imocc.com:/etc/hyperledger/peer
+    depends_on:
+      - orderer.imocc.com
+
+  peer2.org1.imocc.com:
+    extends:
+      service: peer.base
+    container_name: peer2.org1.imocc.com
+    environment:
+      - CORE_VM_ENDPOINT=unix:///host/var/run/docker.sock
+      - CORE_PEER_ID=peer2.org1.imocc.com
+      - CORE_PEER_LOCALMSPID=Org1MSP
+      - CORE_PEER_ADDRESS=peer2.org1.imocc.com:7051
+    ports:
+      - 47051:7051
+      - 47053:7053
+    volumes:
+      - /var/run/:/host/var/run/
+      - ./crypto-config/peerOrganizations/org1.imocc.com/peers/peer2.org1.imocc.com:/etc/hyperledger/peer
+    depends_on:
+      - orderer.imocc.com
+
+  cli: # peer节点客户端 交易都是从客户端发起 需要用到User证书
+    container_name: cli
+    image: hyperledger/fabric-tools
+    tty: true
+    environment:
+      - GOPATH=/opt/gopath
+      - CORE_LOGGING_LEVEL=DEBUG
+      - CORE_PEER_ID=cli
+      - CORE_PEER_ADDRESS=peer0.org1.imocc.com:7051 #现在连接的是组织1的peer0节点,如果需要连接到其他的节点需要进行修改
+      - CORE_PEER_LOCALMSPID=Org1MSP
+      - CORE_PEER_MSPCONFIGPATH=/etc/hyperledger/peer/users/Admin@org1.imocc.com/msp #这里使用的是admin的证书
+    working_dir: /opt/gopath/src/github.com/hyperledger/fabric/
+    command: /bin/bash
+    volumes:
+      - ./../chaincode:/opt/gopath/src/github.com/chaincode # 链码路径注入
+      - ./config:/etc/hyperledger/config
+      - ./crypto-config/peerOrganizations/org1.imocc.com/:/etc/hyperledger/peer

@@ -69,11 +69,11 @@ type Chain interface {
 
 // ConsenterSupport provides the resources available to a Consenter implementation
 type ConsenterSupport interface {
-	crypto.LocalSigner
-	BlockCutter() blockcutter.Receiver
-	SharedConfig() config.Orderer
-	CreateNextBlock(messages []*cb.Envelope) *cb.Block
-	WriteBlock(block *cb.Block, committers []filter.Committer, encodedMetadataValue []byte) *cb.Block
+	crypto.LocalSigner//签名
+	BlockCutter() blockcutter.Receiver//区块切割对象
+	SharedConfig() config.Orderer//orderer配置
+	CreateNextBlock(messages []*cb.Envelope) *cb.Block//将切割好的配置打包成区块
+	WriteBlock(block *cb.Block, committers []filter.Committer, encodedMetadataValue []byte) *cb.Block//写入临时区块
 	ChainID() string // ChainID returns the chain ID this specific consenter instance is associated with
 	Height() uint64  // Returns the number of blocks on the chain this specific consenter instance is associated with
 }
@@ -84,32 +84,34 @@ type ChainSupport interface {
 	// limitation https://github.com/golang/go/issues/6977 the methods must be explicitly declared
 
 	// PolicyManager returns the current policy manager as specified by the chain config
-	PolicyManager() policies.Manager
+	PolicyManager() policies.Manager//读取策略配置
 
 	// Reader returns the chain Reader for the chain
-	Reader() ledger.Reader
+	Reader() ledger.Reader//账本读取
 
 	// Errored returns whether the backing consenter has errored
-	Errored() <-chan struct{}
+	Errored() <-chan struct{}//是否有错误发生?
 
-	broadcast.Support
-	ConsenterSupport
+	broadcast.Support//处理交易输入
+	ConsenterSupport//定义一些共识机制的帮助方法
 
 	// Sequence returns the current config sequence number
-	Sequence() uint64
+	Sequence() uint64//+1
 
+	//将一个将以转换成配置交易
+	//Envelope 信封(交易的具体内容是封装在信封里的)
 	// ProposeConfigUpdate applies a CONFIG_UPDATE to an existing config to produce a *cb.ConfigEnvelope
 	ProposeConfigUpdate(env *cb.Envelope) (*cb.ConfigEnvelope, error)
 }
 
 type chainSupport struct {
-	*ledgerResources
-	chain         Chain
-	cutter        blockcutter.Receiver
-	filters       *filter.RuleSet
-	signer        crypto.LocalSigner
-	lastConfig    uint64
-	lastConfigSeq uint64
+	*ledgerResources //配置 账本读写对象
+	chain         Chain//链的接口
+	cutter        blockcutter.Receiver//区块切割
+	filters       *filter.RuleSet//过滤器
+	signer        crypto.LocalSigner//签名
+	lastConfig    uint64//最新配置信息所在的区块高度
+	lastConfigSeq uint64//最新配置信息的序列号
 }
 
 func newChainSupport(
@@ -119,6 +121,7 @@ func newChainSupport(
 	signer crypto.LocalSigner,
 ) *chainSupport {
 
+	//区块切割对象
 	cutter := blockcutter.NewReceiverImpl(ledgerResources.SharedConfig(), filters)
 	consenterType := ledgerResources.SharedConfig().ConsensusType()
 	consenter, ok := consenters[consenterType]
@@ -133,21 +136,25 @@ func newChainSupport(
 		signer:          signer,
 	}
 
+	//序列号
 	cs.lastConfigSeq = cs.Sequence()
 
 	var err error
 
+	//获取最新的区块
 	lastBlock := ledger.GetBlock(cs.Reader(), cs.Reader().Height()-1)
 
 	// If this is the genesis block, the lastconfig field may be empty, and, the last config is necessary 0
 	// so no need to initialize lastConfig
 	if lastBlock.Header.Number != 0 {
+		//获取最新的配置信息所在的区块高度
 		cs.lastConfig, err = utils.GetLastConfigIndexFromBlock(lastBlock)
 		if err != nil {
 			logger.Fatalf("[channel: %s] Error extracting last config block from block metadata: %s", cs.ChainID(), err)
 		}
 	}
 
+	//获取区块的元数据信息
 	metadata, err := utils.GetMetadataFromBlock(lastBlock, cb.BlockMetadataIndex_ORDERER)
 	// Assuming a block created with cb.NewBlock(), this should not
 	// error even if the orderer metadata is an empty byte slice
@@ -156,6 +163,7 @@ func newChainSupport(
 	}
 	logger.Debugf("[channel: %s] Retrieved metadata for tip of chain (blockNumber=%d, lastConfig=%d, lastConfigSeq=%d): %+v", cs.ChainID(), lastBlock.Header.Number, cs.lastConfig, cs.lastConfigSeq, metadata)
 
+	//填充chain对象
 	cs.chain, err = consenter.HandleChain(cs, metadata)
 	if err != nil {
 		logger.Fatalf("[channel: %s] Error creating consenter: %s", cs.ChainID(), err)
@@ -272,16 +280,21 @@ func (cs *chainSupport) addLastConfigSignature(block *cb.Block) {
 }
 
 func (cs *chainSupport) WriteBlock(block *cb.Block, committers []filter.Committer, encodedMetadataValue []byte) *cb.Block {
+	//过滤器额外操作
 	for _, committer := range committers {
 		committer.Commit()
 	}
+	//写元数据
 	// Set the orderer-related metadata field
 	if encodedMetadataValue != nil {
 		block.Metadata.Metadata[cb.BlockMetadataIndex_ORDERER] = utils.MarshalOrPanic(&cb.Metadata{Value: encodedMetadataValue})
 	}
+	//区块签名
 	cs.addBlockSignature(block)
+	//配置签名
 	cs.addLastConfigSignature(block)
 
+	//将区块写入到账本中
 	err := cs.ledger.Append(block)
 	if err != nil {
 		logger.Panicf("[channel: %s] Could not append block: %s", cs.ChainID(), err)

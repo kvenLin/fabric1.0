@@ -26,7 +26,7 @@ import (
 )
 
 // fsBlockStore - filesystem based implementation for `BlockStore`
-type fsBlockStore struct {
+type fsBlockStore struct {//区块文件存储
 	id      string
 	conf    *Conf
 	fileMgr *blockfileMgr

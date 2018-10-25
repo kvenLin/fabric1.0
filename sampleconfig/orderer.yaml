@@ -163,7 +163,7 @@ Kafka:
         # <LongInterval> for a total of <LongTotal> until they succeed.
         # Note that the orderer will be unable to write to or read from a
         # channel until all of the steps above have been completed successfully.
-        ShortInterval: 5s
+        ShortInterval: 5s # ORDERER_KAFKA_RETRY_SHORTINTERVAL,在docker-compose.yaml中的配置命名可以替换该项的默认值
         ShortTotal: 10m
         LongInterval: 5m
         LongTotal: 12h

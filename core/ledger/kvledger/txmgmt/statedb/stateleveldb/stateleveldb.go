@@ -28,9 +28,14 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/iterator"
 )
 
+//3个问题
+//1.如何关联智能合约键值对与底层存储的键值对 数据隔离
+//2.如何持久化区块的状态信息
+//3.如何标识最新存储的区块编号
+
 var logger = flogging.MustGetLogger("stateleveldb")
 
-var compositeKeySep = []byte{0x00}
+var compositeKeySep = []byte{0x00}//组合键的分隔符
 var lastKeyIndicator = byte(0x01)
 var savePointKey = []byte{0x00}
 
@@ -147,6 +152,7 @@ func (vdb *versionedDB) ApplyUpdates(batch *statedb.UpdateBatch, height *version
 			}
 		}
 	}
+	//标识最新区块
 	dbBatch.Put(savePointKey, height.ToBytes())
 	// Setting snyc to true as a precaution, false may be an ok optimization after further testing.
 	if err := vdb.db.WriteBatch(dbBatch, true); err != nil {

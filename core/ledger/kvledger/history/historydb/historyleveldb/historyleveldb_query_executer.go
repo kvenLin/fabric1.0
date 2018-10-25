@@ -31,6 +31,9 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/iterator"
 )
 
+// 利用leveldb的前缀匹配功能,拆分对应的区块交易集合
+//基于区块文件存储,找到对应的交易
+
 // LevelHistoryDBQueryExecutor is a query executor against the LevelDB history DB
 type LevelHistoryDBQueryExecutor struct {
 	historyDB  *historyDB
@@ -44,6 +47,10 @@ func (q *LevelHistoryDBQueryExecutor) GetHistoryForKey(namespace string, key str
 		return nil, errors.New("History tracking not enabled - historyDatabase is false")
 	}
 
+	//ns/key/blocknum1/trannum1
+	//ns/key/blocknum2/trannum2
+
+	//ns/key---> [blocknum1,trannum1],[blocknum2,trannum2]
 	var compositeStartKey []byte
 	var compositeEndKey []byte
 	compositeStartKey = historydb.ConstructPartialCompositeHistoryKey(namespace, key, false)
@@ -60,7 +67,7 @@ type historyScanner struct {
 	namespace           string
 	key                 string
 	dbItr               iterator.Iterator
-	blockStore          blkstorage.BlockStore
+	blockStore          blkstorage.BlockStore//区块文件存储
 }
 
 func newHistoryScanner(compositePartialKey []byte, namespace string, key string,
@@ -87,6 +94,7 @@ func (scanner *historyScanner) Next() (commonledger.QueryResult, error) {
 		return nil, err
 	}
 
+	//根据区块高度加交易编号查找交易
 	// Get the txid, key write value, timestamp, and delete indicator associated with this transaction
 	queryResult, err := getKeyModificationFromTran(tranEnvelope, scanner.namespace, scanner.key)
 	if err != nil {

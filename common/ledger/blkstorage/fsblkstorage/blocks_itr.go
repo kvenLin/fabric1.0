@@ -23,11 +23,11 @@ import (
 )
 
 // blocksItr - an iterator for iterating over a sequence of blocks
-type blocksItr struct {
+type blocksItr struct {//对象:区块
 	mgr                  *blockfileMgr
 	maxBlockNumAvailable uint64
 	blockNumToRetrieve   uint64
-	stream               *blockStream
+	stream               *blockStream//区块流
 	closeMarker          bool
 	closeMarkerLock      *sync.Mutex
 }

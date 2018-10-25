@@ -19,6 +19,7 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/crypto"
+	"sync"
 )
 
 var logger = logging.MustGetLogger("orderer/multichain")
@@ -31,16 +32,20 @@ const (
 // Manager coordinates the creation and access of chains
 type Manager interface {
 	// GetChain retrieves the chain support for a chain (and whether it exists)
+	//根据链的名称获取链的对象
 	GetChain(chainID string) (ChainSupport, bool)
 
 	// SystemChannelID returns the channel ID for the system channel
+	//获取一个系统链名
 	SystemChannelID() string
 
 	// NewChannelConfig returns a bare bones configuration ready for channel
 	// creation request to be applied on top of it
+	//生成链的配置或更新链的配置
 	NewChannelConfig(envConfigUpdate *cb.Envelope) (configtxapi.Manager, error)
 }
 
+//配置资源
 type configResources struct {
 	configtxapi.Manager
 }
@@ -53,22 +58,28 @@ func (cr *configResources) SharedConfig() config.Orderer {
 	return oc
 }
 
+//账本资源类
 type ledgerResources struct {
 	*configResources
 	ledger ledger.ReadWriter
 }
 
+//manager的实现
 type multiLedger struct {
-	chains          map[string]*chainSupport
-	consenters      map[string]Consenter
-	ledgerFactory   ledger.Factory
-	signer          crypto.LocalSigner
-	systemChannelID string
-	systemChannel   *chainSupport
+	chains          map[string]*chainSupport//多链的对象
+	lock 			sync.Mutex
+	consenters      map[string]Consenter//现阶段支持的共识机制
+	ledgerFactory   ledger.Factory//账本读写工厂
+	signer          crypto.LocalSigner//签名对象
+	systemChannelID string//系统链的名称
+	systemChannel   *chainSupport//系统链对象
 }
 
+//获取链最新的配置交易
 func getConfigTx(reader ledger.Reader) *cb.Envelope {
+	//获取该链最新的一个区块
 	lastBlock := ledger.GetBlock(reader, reader.Height()-1)
+	//根据最新的区块的信息原宿主信息找到最新的配置交易的区块
 	index, err := utils.GetLastConfigIndexFromBlock(lastBlock)
 	if err != nil {
 		logger.Panicf("Chain did not have appropriately encoded last config in its latest block: %s", err)
@@ -90,19 +101,24 @@ func NewManagerImpl(ledgerFactory ledger.Factory, consenters map[string]Consente
 		signer:        signer,
 	}
 
+	//读取本地已经存储的链的ID
 	existingChains := ledgerFactory.ChainIDs()
-	for _, chainID := range existingChains {
+	for _, chainID := range existingChains {//循环
+		//实例化账本读的对象 read ledger
 		rl, err := ledgerFactory.GetOrCreate(chainID)
 		if err != nil {
 			logger.Panicf("Ledger factory reported chainID %s but could not retrieve it: %s", chainID, err)
 		}
+		//获取链最新的配置交易
 		configTx := getConfigTx(rl)
 		if configTx == nil {
 			logger.Panic("Programming error, configTx should never be nil here")
 		}
+		//将配置交易和读写对象绑定在一起
 		ledgerResources := ml.newLedgerResources(configTx)
 		chainID := ledgerResources.ChainID()
 
+		//是否有创建其他链的权限
 		if _, ok := ledgerResources.ConsortiumsConfig(); ok {
 			if ml.systemChannelID != "" {
 				logger.Panicf("There appear to be two system chains %s and %s", ml.systemChannelID, chainID)
@@ -112,19 +128,23 @@ func NewManagerImpl(ledgerFactory ledger.Factory, consenters map[string]Consente
 				consenters,
 				signer)
 			logger.Infof("Starting with system channel %s and orderer type %s", chainID, chain.SharedConfig().ConsensusType())
+			ml.lock.Lock()
 			ml.chains[chainID] = chain
+			ml.lock.Unlock()
 			ml.systemChannelID = chainID
 			ml.systemChannel = chain
 			// We delay starting this chain, as it might try to copy and replace the chains map via newChain before the map is fully built
-			defer chain.start()
+			defer chain.start()//延迟启动
 		} else {
 			logger.Debugf("Starting chain: %s", chainID)
 			chain := newChainSupport(createStandardFilters(ledgerResources),
 				ledgerResources,
 				consenters,
 				signer)
+			ml.lock.Lock()
 			ml.chains[chainID] = chain
-			chain.start()
+			ml.lock.Unlock()
+			chain.start()//启动
 		}
 
 	}
@@ -142,10 +162,13 @@ func (ml *multiLedger) SystemChannelID() string {
 
 // GetChain retrieves the chain support for a chain (and whether it exists)
 func (ml *multiLedger) GetChain(chainID string) (ChainSupport, bool) {
+	ml.lock.Lock()
+	defer ml.lock.Unlock()
 	cs, ok := ml.chains[chainID]
 	return cs, ok
 }
 
+//实例化一个账本资源对象
 func (ml *multiLedger) newLedgerResources(configTx *cb.Envelope) *ledgerResources {
 	initializer := configtx.NewInitializer()
 	configManager, err := configtx.NewManagerImpl(configTx, initializer, nil)
@@ -166,31 +189,38 @@ func (ml *multiLedger) newLedgerResources(configTx *cb.Envelope) *ledgerResource
 	}
 }
 
+//根据配置交易新建一条链
 func (ml *multiLedger) newChain(configtx *cb.Envelope) {
 	ledgerResources := ml.newLedgerResources(configtx)
 	ledgerResources.ledger.Append(ledger.CreateNextBlock(ledgerResources.ledger, []*cb.Envelope{configtx}))
 
 	// Copy the map to allow concurrent reads from broadcast/deliver while the new chainSupport is
-	newChains := make(map[string]*chainSupport)
-	for key, value := range ml.chains {
-		newChains[key] = value
-	}
+	//TODO
+	//newChains := make(map[string]*chainSupport)
+	//for key, value := range ml.chains {
+	//	newChains[key] = value
+	//}
 
 	cs := newChainSupport(createStandardFilters(ledgerResources), ledgerResources, ml.consenters, ml.signer)
 	chainID := ledgerResources.ChainID()
 
 	logger.Infof("Created and starting new chain %s", chainID)
 
-	newChains[string(chainID)] = cs
+	//newChains[string(chainID)] = cs
 	cs.start()
 
-	ml.chains = newChains
+	//ml.chains = newChains
+
+	ml.lock.Lock()
+	ml.chains[chainID] = cs
+	ml.lock.Unlock()
 }
 
 func (ml *multiLedger) channelsCount() int {
 	return len(ml.chains)
 }
 
+//生成新链的一些配置
 func (ml *multiLedger) NewChannelConfig(envConfigUpdate *cb.Envelope) (configtxapi.Manager, error) {
 	configUpdatePayload, err := utils.UnmarshalPayload(envConfigUpdate.Payload)
 	if err != nil {
@@ -315,5 +345,6 @@ func (ml *multiLedger) NewChannelConfig(envConfigUpdate *cb.Envelope) (configtxa
 		}()
 	}
 
+	//配置manager实例化
 	return configtx.NewManagerImpl(templateConfig, initializer, nil)
 }

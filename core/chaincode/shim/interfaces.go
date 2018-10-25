@@ -29,11 +29,13 @@ type Chaincode interface {
 	// Init is called during Instantiate transaction after the chaincode container
 	// has been established for the first time, allowing the chaincode to
 	// initialize its internal data
+	//链码的初始化
 	Init(stub ChaincodeStubInterface) pb.Response
 
 	// Invoke is called to update or query the ledger in a proposal transaction.
 	// Updated state variables are not committed to the ledger until the
 	// transaction is committed.
+	//链码交互的入口
 	Invoke(stub ChaincodeStubInterface) pb.Response
 }
 
@@ -77,6 +79,7 @@ type ChaincodeStubInterface interface {
 	// the called chaincode on a different channel is a `Query`, which does not
 	// participate in state validation checks in subsequent commit phase.
 	// If `channel` is empty, the caller's channel is assumed.
+	//用于链码的互操作(只读)
 	InvokeChaincode(chaincodeName string, args [][]byte, channel string) pb.Response
 
 	// GetState returns the value of the specified `key` from the
@@ -109,6 +112,7 @@ type ChaincodeStubInterface interface {
 	// Call Close() on the returned StateQueryIteratorInterface object when done.
 	// The query is re-executed during validation phase to ensure result set
 	// has not changed since transaction endorsement (phantom reads detected).
+	//获取状态区间
 	GetStateByRange(startKey, endKey string) (StateQueryIteratorInterface, error)
 
 	// GetStateByPartialCompositeKey queries the state in the ledger based on
@@ -121,6 +125,7 @@ type ChaincodeStubInterface interface {
 	// Call Close() on the returned StateQueryIteratorInterface object when done.
 	// The query is re-executed during validation phase to ensure result set
 	// has not changed since transaction endorsement (phantom reads detected).
+	//前缀匹配
 	GetStateByPartialCompositeKey(objectType string, keys []string) (StateQueryIteratorInterface, error)
 
 	// CreateCompositeKey combines the given `attributes` to form a composite
@@ -191,6 +196,7 @@ type ChaincodeStubInterface interface {
 	// SetEvent allows the chaincode to propose an event on the transaction
 	// proposal. If the transaction is validated and successfully committed,
 	// the event will be delivered to the current event listeners.
+	//事件相关
 	SetEvent(name string, payload []byte) error
 }
 

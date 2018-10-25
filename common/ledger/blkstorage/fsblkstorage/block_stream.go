@@ -33,7 +33,7 @@ var ErrUnexpectedEndOfBlockfile = errors.New("unexpected end of blockfile")
 
 // blockfileStream reads blocks sequentially from a single file.
 // It starts from the given offset and can traverse till the end of the file
-type blockfileStream struct {
+type blockfileStream struct {//区块文件块(64m)
 	fileNum       int
 	file          *os.File
 	reader        *bufio.Reader
@@ -43,7 +43,7 @@ type blockfileStream struct {
 // blockStream reads blocks sequentially from multiple files.
 // it starts from a given file offset and continues with the next
 // file segment until the end of the last segment (`endFileNum`)
-type blockStream struct {
+type blockStream struct {//处理对象是区块
 	rootDir           string
 	currentFileNum    int
 	endFileNum        int
