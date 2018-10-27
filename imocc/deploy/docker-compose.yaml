@@ -47,7 +47,7 @@ services:
       - CORE_VM_DOCKER_HOSTCONFIG_NETWORKMODE=deploy_default # chaincode与peer节点使用同一个网络,如果不设置该参数,链码可能会连不上peer节点
     working_dir: /opt/gopath/src/github.com/hyperledger/fabric
 #    command: peer node start
-    command: peer node start --peer-chaincodedev=true
+    command: peer node start --peer-chaincodedev=true #开发者模式时使用的配置方式
 ##################对5个peer节点做不同的配置#################
   #org0下的节点
   peer0.org0.imocc.com:
