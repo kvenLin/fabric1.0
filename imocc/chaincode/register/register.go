@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"encoding/json"
 	"bytes"
+	"strings"
 )
 
 var logger = shim.NewLogger("register")
@@ -19,6 +20,14 @@ var logger = shim.NewLogger("register")
 type SimpleChaincode struct {
 }
 
+const (
+	USER_NOT_EXIST = 404
+	PASSWORD_ERROR = 403
+	USER_ALREADY_EXIST = 501
+	SUCCESS = "success"
+	ERROR = "error"
+
+)
 
 type User struct {
 	ID string `json:"id"`
@@ -27,6 +36,60 @@ type User struct {
 	Balance float64 `json:"balance"`
 	Points int `json:"crePoint"`
 }
+
+type UserResult struct {
+	Code int `json:"code"`
+	Message string `json:"message"`
+	User User `json:"user"`
+}
+
+type NormalResult struct {
+	Code int `json:"code"`
+	Message string `json:"message"`
+}
+//
+//type TxInfo struct {
+//	TxId string `json:"tx_id"`
+//	Value string `json:"value"`
+//	Timestamp Timestamp `json:"timestamp"`
+//}
+//
+//type Timestamp struct {
+//	seconds int64 `json:"seconds"`
+//	nanos int64 `json:"nanos"`
+//}
+//
+//type TxResult struct {
+//	Code int `json:"code"`
+//	Message string `json:"message"`
+//	TxInfos []TxInfo `json:"tx_infos"`
+//}
+func getErrorResult(reason int) []byte{
+	logger.Info()
+	result :=  NormalResult{reason,ERROR}
+	byte,_ := json.Marshal(result)
+	return byte
+}
+
+
+func getUserSuccessResult(user User) []byte{
+	var userResult UserResult
+	userResult.Code = 0
+	userResult.Message = SUCCESS
+	userResult.User = user
+	reByte,_ := json.Marshal(userResult)
+	return reByte
+}
+
+func getNormalSuccessResult() []byte{
+	var normalResult NormalResult
+	normalResult.Code = 0
+	normalResult.Message = SUCCESS
+	reByte,_ := json.Marshal(normalResult)
+	return reByte
+}
+
+
 //安装Chaincode
 func (t *SimpleChaincode) Init(stub shim.ChaincodeStubInterface) pb.Response {
 	logger.Info("############# Register Init ##############")
@@ -57,6 +120,8 @@ func (t *SimpleChaincode)Invoke(stub shim.ChaincodeStubInterface) pb.Response {
 		return t.query(stub,args)
 	case "getHistoryForKey":
 		return t.getHistoryForKey(stub,args)
+	case "queryTxInfo":
+		return t.queryTxInfo(stub,args)
 	default:
 		return shim.Error(fmt.Sprintf("unsupported function :%s ",function))
 	}
@@ -102,7 +167,7 @@ func (t *SimpleChaincode) regist(stub shim.ChaincodeStubInterface,args []string)
 		return shim.Error("Failed to get state")
 	}
 	if Avalbytes != nil {
-		return shim.Error("this user already exist")
+		return shim.Success(getErrorResult(USER_ALREADY_EXIST))
 	}
 
 	//Write the state back to the ledger
@@ -110,7 +175,7 @@ func (t *SimpleChaincode) regist(stub shim.ChaincodeStubInterface,args []string)
 	if err != nil {
 		shim.Error(err.Error())
 	}
-	return shim.Success([]byte(accountID+"帐号创建成功! "))
+	return shim.Success(getNormalSuccessResult())
 
 }
 
@@ -131,7 +196,7 @@ func (t *SimpleChaincode) login(stub shim.ChaincodeStubInterface, args []string)
 		return shim.Error("Failed to get account: "+err.Error())
 	}
 	if bytes == nil {
-		return shim.Error("This account does not exists : "+accountID)
+		return shim.Success(getErrorResult(USER_NOT_EXIST))
 	}
 
 	var user User
@@ -140,9 +205,9 @@ func (t *SimpleChaincode) login(stub shim.ChaincodeStubInterface, args []string)
 		return shim.Error("Failed to unmarshal user"+err.Error())
 	}
 	if user.Password == password {
-		return shim.Success([]byte("correct password"))
+		return shim.Success(getNormalSuccessResult())
 	}else {
-		return shim.Error("Wrong password!")
+		return shim.Success(getErrorResult(PASSWORD_ERROR))
 	}
 }
 
@@ -163,7 +228,7 @@ func (t *SimpleChaincode) changePwd(stub shim.ChaincodeStubInterface, args []str
 		return shim.Error("Failed get account:"+err.Error())
 	}
 	if bytes == nil {
-		return shim.Error("user does not exist:"+userID)
+		return shim.Success(getErrorResult(USER_NOT_EXIST))
 	}
 	var user User
 	err = json.Unmarshal(bytes,&user)
@@ -173,14 +238,14 @@ func (t *SimpleChaincode) changePwd(stub shim.ChaincodeStubInterface, args []str
 	if user.Password == oldPassword {
 		user.Password = newPassword
 	}else {
-		return shim.Error("user password wrong!")
+		return shim.Success(getErrorResult(PASSWORD_ERROR))
 	}
 	Bytes,_ := json.Marshal(user)
 	err = stub.PutState(user.ID,Bytes)
 	if err != nil {
 		return shim.Error("put to state error:"+err.Error())
 	}
-	return shim.Success([]byte("更新成功!"))
+	return shim.Success(getNormalSuccessResult())
 
 }
 //==============================
@@ -205,7 +270,7 @@ func (t *SimpleChaincode) update(stub shim.ChaincodeStubInterface, args []string
 		return shim.Error("Failed get account:"+userID)
 	}
 	if bytes == nil {
-		return shim.Error("this account does not exists:"+userID)
+		return shim.Success(getErrorResult(USER_NOT_EXIST))
 	}
 	var user User
 	err = json.Unmarshal(bytes,&user)
@@ -219,7 +284,7 @@ func (t *SimpleChaincode) update(stub shim.ChaincodeStubInterface, args []string
 	if err != nil {
 		return shim.Error("Failed to put user to state :"+err.Error())
 	}
-	return shim.Success([]byte("修改账户成功!"))
+	return shim.Success(getNormalSuccessResult())
 }
 
 //================================
@@ -238,12 +303,13 @@ func (t *SimpleChaincode) query(stub shim.ChaincodeStubInterface, args []string)
 		return shim.Error(jsonResp)
 	}
 	if Avalbytes == nil {
-		jsonResp := "{\"Error\":\"Nil count for " + ID + "\"}"
-		return shim.Error(jsonResp)
+		return shim.Success(getErrorResult(USER_NOT_EXIST))
 	}
 	jsonResp := string(Avalbytes)
 	fmt.Printf("Query Response:%s \n",jsonResp)
-	return shim.Success(Avalbytes)
+	var user User
+	json.Unmarshal(Avalbytes,&user)
+	return shim.Success(getUserSuccessResult(user))
 }
 
 //==============================
@@ -296,7 +362,7 @@ func (t *SimpleChaincode) transMoney(stub shim.ChaincodeStubInterface, args []st
 	if err != nil {
 		return shim.Error("Failed to put seller to state :"+err.Error())
 	}
-	return shim.Success([]byte("转账成功!"))
+	return shim.Success(getNormalSuccessResult())
 }
 
 //==============================
@@ -319,7 +385,7 @@ func (t *SimpleChaincode) getPoints(stub shim.ChaincodeStubInterface, args []str
 		return shim.Error("Failed to user from state :"+err.Error())
 	}
 	if bytes == nil {
-		return shim.Error("user does not exist transerID:"+transerID)
+		return shim.Success(getErrorResult(USER_NOT_EXIST))
 	}
 	err = json.Unmarshal(bytes,&transer)
 	if err != nil {
@@ -331,7 +397,7 @@ func (t *SimpleChaincode) getPoints(stub shim.ChaincodeStubInterface, args []str
 	if err != nil {
 		return shim.Error("Failed to put transer to state:"+err.Error())
 	}
-	return shim.Success([]byte("增加积分成功"))
+	return shim.Success(getNormalSuccessResult())
 }
 
 //================
@@ -348,7 +414,7 @@ func (t *SimpleChaincode) delete(stub shim.ChaincodeStubInterface, args []string
 		return shim.Error("Failed to get user from state:"+err.Error())
 	}
 	if bytes == nil {
-		return shim.Error("User does not exist userID:"+userID)
+		return shim.Success(getErrorResult(USER_NOT_EXIST))
 	}
 	var user User
 	user =  User{}
@@ -364,7 +430,7 @@ func (t *SimpleChaincode) delete(stub shim.ChaincodeStubInterface, args []string
 	if err != nil {
 		return shim.Error("Failed to delete user :"+err.Error())
 	}
-	return shim.Success([]byte("删除帐号成功!"))
+	return shim.Success(getNormalSuccessResult())
 }
 
 //==================================
@@ -378,19 +444,36 @@ func (t *SimpleChaincode) getHistoryForKey(stub shim.ChaincodeStubInterface, arg
 	userID = args[0]
 	HisInterface,err := stub.GetHistoryForKey(userID)
 	fmt.Println(HisInterface)
-	historyBytes,err := getHistoryListResult(HisInterface)
+	historyStrings,err := getHistoryListResult(HisInterface)
+	byteContent := strings.Join(historyStrings,"")
 	if err != nil {
 		return shim.Error("Failed to get user history:"+err.Error())
 	}
-	return shim.Success([]byte(historyBytes))
+	return shim.Success([]byte(byteContent))
 }
 
+//=================================
+//查看单笔交易信息 args: txID
+//===================================
+func (t *SimpleChaincode) queryTxInfo(stub shim.ChaincodeStubInterface, args []string) pb.Response {
+	if len(args) != 1 {
+		return argsNumberErrorMsg("function need arg tx_id",1)
+	}
+	var txId string
+	txId = args[0]
+	infoByte,err := stub.GetState(txId)
+	if err != nil {
+		return shim.Error("Failed to get txInfo from state:"+err.Error())
+	}
+	return shim.Success(infoByte)
+}
 
-func getHistoryListResult(resultsIterator shim.HistoryQueryIteratorInterface)([]byte,error){
+func getHistoryListResult(resultsIterator shim.HistoryQueryIteratorInterface)([]string,error){
 	defer resultsIterator.Close()
 	var buffer bytes.Buffer
 	buffer.WriteString("[")
 	bArrayMemberAlreadyWritten := false
+	var responses []string
 	for resultsIterator.HasNext() {
 		queryResponse, err := resultsIterator.Next()
 		if err != nil {
@@ -400,13 +483,17 @@ func getHistoryListResult(resultsIterator shim.HistoryQueryIteratorInterface)([]
 		if bArrayMemberAlreadyWritten == true {
 			buffer.WriteString(",")
 		}
-		item, _ := json.Marshal(queryResponse)
-		buffer.Write(item)
+		responses = append(responses, queryResponse.String())
+		//item, _ := json.Marshal(queryResponse)
+		logger.Info("queryResponse:",queryResponse)
+		//logger.Info("history item:",item)
+		//buffer.Write(item)
 		bArrayMemberAlreadyWritten = true
 	}
 	buffer.WriteString("]")
 	fmt.Printf("queryResult:\n%s\n", buffer.String())
-	return buffer.Bytes(), nil
+	//return buffer.Bytes(), nil
+	return responses,nil
 }
 
 

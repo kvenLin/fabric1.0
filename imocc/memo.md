@@ -162,6 +162,8 @@ peer chaincode query -C assetschannel -n assets -c '{"Args":["queryAssetHistory"
 ## 链码调试
 *注意:需要在chaincode目录下对应的链码路径使用命令*
 ```bash
+//引入docker-compose的环境变量
+export COMPOSE_HTTP_TIMEOUT=12000
 //调试register
 CORE_CHAINCODE_ID_NAME=register:1.0.0 CORE_PEER_ADDRESS=0.0.0.0:27051 CORE_CHAINCODE_LOGGING_LEVEL=DEBUG go run -tags=nopkcs11 register.go
 //测试drugTrace

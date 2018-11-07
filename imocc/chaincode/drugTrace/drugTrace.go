@@ -8,11 +8,24 @@ import (
 	"encoding/json"
 	"time"
 	"bytes"
+	"strings"
 )
 
 var logger = shim.NewLogger("trance")
 
 type SimpleChaincode struct {}
+
+const (
+	USER_NOT_EXIST      = 404
+	PASSWORD_ERROR      = 403
+	USER_ALREADY_EXIST  = 501
+	DRUG_ALREADY_EXIST  = 502
+	DRUG_DOES_NOT_EXIST = 503
+	TRANS_MONEY_ERROR   = 504
+	SUCCESS             = "success"
+	ERROR               = "error"
+
+)
 
 //药品
 type Drug struct {
@@ -33,6 +46,43 @@ type Trace struct {
 	TimeStamp string `json:"timeStamp"`
 }
 
+
+
+type DrugResult struct {
+	Code int `json:"code"`
+	Message string `json:"message"`
+	Drug Drug `json:"drug"`
+}
+
+type NormalResult struct {
+	Code int `json:"code"`
+	Message string `json:"message"`
+}
+
+func getErrorResult(reason int) []byte{
+	logger.Info()
+	result :=  NormalResult{reason,ERROR}
+	byte,_ := json.Marshal(result)
+	return byte
+}
+
+
+func getDrugSuccessResult(drug Drug) []byte{
+	var drugResult DrugResult
+	drugResult.Code = 0
+	drugResult.Message = SUCCESS
+	drugResult.Drug = drug
+	reByte,_ := json.Marshal(drugResult)
+	return reByte
+}
+
+func getNormalSuccessResult() []byte{
+	var normalResult NormalResult
+	normalResult.Code = 0
+	normalResult.Message = SUCCESS
+	reByte,_ := json.Marshal(normalResult)
+	return reByte
+}
 
 
 //链码初始化
@@ -104,7 +154,8 @@ func (c *SimpleChaincode) drugInit(stub shim.ChaincodeStubInterface, args []stri
 		return shim.Error("Failed to get drug from state:"+err.Error())
 	}
 	if dBytes != nil {
-		return shim.Error("this drug already exist drugID:"+drugID)
+		//TODO
+		return shim.Success(getErrorResult(DRUG_ALREADY_EXIST))
 	}
 	bytes,err := json.Marshal(drug)
 	if err != nil {
@@ -114,7 +165,7 @@ func (c *SimpleChaincode) drugInit(stub shim.ChaincodeStubInterface, args []stri
 	if err != nil {
 		return shim.Error("Failed to put drug to state:"+err.Error())
 	}
-	return shim.Success([]byte(drugID+"药品上链成功!"))
+	return shim.Success(getNormalSuccessResult())
 }
 
 //============================================
@@ -132,7 +183,7 @@ func (c *SimpleChaincode) trans(stub shim.ChaincodeStubInterface, args []string)
 		return shim.Error("Failed to get drug from state:"+err.Error())
 	}
 	if dBytes == nil {
-		return shim.Error("does not exist drugID:"+drugID)
+		return shim.Success(getErrorResult(DRUG_DOES_NOT_EXIST))
 	}
 	var drug Drug
 	err = json.Unmarshal(dBytes,&drug)
@@ -160,7 +211,7 @@ func (c *SimpleChaincode) trans(stub shim.ChaincodeStubInterface, args []string)
 	if response.Status != int32(200) {
 		return shim.Error("Failed to get addComment :"+err.Error())
 	}
-	return shim.Success([]byte("添加溯源信息成功!"))
+	return shim.Success(getNormalSuccessResult())
 }
 
 
@@ -181,7 +232,7 @@ func (c *SimpleChaincode) buy(stub shim.ChaincodeStubInterface, args []string) p
 		return shim.Error("Failed to get drug from state:"+err.Error())
 	}
 	if dBytes == nil {
-		return shim.Error("drug does not exist drugID:"+drugID)
+		return shim.Success(getErrorResult(DRUG_DOES_NOT_EXIST))
 	}
 	var drug Drug
 	err = json.Unmarshal(dBytes,&drug)
@@ -194,6 +245,9 @@ func (c *SimpleChaincode) buy(stub shim.ChaincodeStubInterface, args []string) p
 	trace.TimeStamp = currentTime.String()
 	trace.Place = endPlace
 	drug.Traces = append(drug.Traces,trace)
+	drug.Buyer = buyerID
+	drug.OwnerID = buyerID
+	sellerID := drug.OwnerID
 	dBytes,err = json.Marshal(drug)
 	if err != nil {
 		return shim.Error("Failed to drug:"+err.Error())
@@ -205,13 +259,12 @@ func (c *SimpleChaincode) buy(stub shim.ChaincodeStubInterface, args []string) p
 	//第二步:调用转账链码
 	//获取药品的价格并转换成字符串
 	price := strconv.FormatFloat(drug.Price,'f',10,64)
-	sellerID := drug.OwnerID
 	transMoney := [][]byte{[]byte("transMoney"),[]byte(buyerID),[]byte(sellerID),[]byte(price)}
 	response := stub.InvokeChaincode("register",transMoney,"mychannel")
 	if response.Status != int32(200) {
-		return shim.Error("Failed to transfer:"+response.GetMessage())
+		return shim.Success(getErrorResult(TRANS_MONEY_ERROR))
 	}
-	return shim.Success([]byte("购买药品成功!"))
+	return shim.Success(getNormalSuccessResult())
 }
 
 
@@ -230,11 +283,17 @@ func (c *SimpleChaincode) query(stub shim.ChaincodeStubInterface, args []string)
 	}
 	if dBytes == nil {
 		jsonResp := "{\"Error\":\"Does not exist drugID " + drugID + "\"}"
-		return shim.Error(jsonResp)
+		logger.Error(jsonResp)
+		return shim.Success(getErrorResult(DRUG_DOES_NOT_EXIST))
 	}
 	jsonResp := string(dBytes)
 	fmt.Sprintf("Query response:%s\n",jsonResp)
-	return shim.Success(dBytes)
+	var drug Drug
+	err = json.Unmarshal(dBytes,&drug)
+	if err != nil {
+		return shim.Error("unmarshal error!")
+	}
+	return shim.Success(getDrugSuccessResult(drug))
 }
 
 //===========================
@@ -250,11 +309,12 @@ func (c *SimpleChaincode) getHistoryForKey(stub shim.ChaincodeStubInterface, arg
 	if err != nil {
 		return shim.Error("Failed to get hisInterface!")
 	}
-	bytes,err := getHistoryListResult(HisInterface)
+	historyStrings,err := getHistoryListResult(HisInterface)
+	byteContent := strings.Join(historyStrings,"")
 	if err != nil {
 		return shim.Error("Failed to get historyListResult!")
 	}
-	return shim.Success(bytes)
+	return shim.Success([]byte(byteContent))
 }
 
 //==================================
@@ -309,7 +369,7 @@ func getListResult(resultsIterator shim.StateQueryIteratorInterface) ([]byte, er
 }
 
 
-func getHistoryListResult(resultsIterator shim.HistoryQueryIteratorInterface) ([]byte, error) {
+func getHistoryListResult(resultsIterator shim.HistoryQueryIteratorInterface) ([]string, error) {
 
 	defer resultsIterator.Close()
 	// buffer is a JSON array containing QueryRecords
@@ -317,6 +377,7 @@ func getHistoryListResult(resultsIterator shim.HistoryQueryIteratorInterface) ([
 	buffer.WriteString("[")
 
 	bArrayMemberAlreadyWritten := false
+	var responses []string
 	for resultsIterator.HasNext() {
 		queryResponse, err := resultsIterator.Next()
 		if err != nil {
@@ -326,13 +387,14 @@ func getHistoryListResult(resultsIterator shim.HistoryQueryIteratorInterface) ([
 		if bArrayMemberAlreadyWritten == true {
 			buffer.WriteString(",")
 		}
+		responses = append(responses, queryResponse.String())
 		item, _ := json.Marshal(queryResponse)
 		buffer.Write(item)
 		bArrayMemberAlreadyWritten = true
 	}
 	buffer.WriteString("]")
 	fmt.Printf("queryResult:\n%s\n", buffer.String())
-	return buffer.Bytes(), nil
+	return responses, nil
 }
 
 
