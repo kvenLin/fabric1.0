@@ -1,5 +1,7 @@
 # 笔记
 
+### **整个网络搭建的学习笔记在Fabric1.0学习总结.docx文件中**
+
 ## 设置环境变量
 ```bash
 export FBRIC_CFG_PATH=$GOPATH/src/github.com/hyperledger/fabric/imocc/deploy
