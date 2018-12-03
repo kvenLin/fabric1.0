@@ -246,8 +246,8 @@ func (c *SimpleChaincode) buy(stub shim.ChaincodeStubInterface, args []string) p
 	trace.Place = endPlace
 	drug.Traces = append(drug.Traces,trace)
 	drug.Buyer = buyerID
-	drug.OwnerID = buyerID
 	sellerID := drug.OwnerID
+	drug.OwnerID = buyerID
 	dBytes,err = json.Marshal(drug)
 	if err != nil {
 		return shim.Error("Failed to drug:"+err.Error())
